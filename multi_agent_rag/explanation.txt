@@ -1,0 +1,179 @@
+This Python script creates an AI assistant that can answer questions based on the content of a PDF document downloaded from a URL. It uses a PostgreSQL database to store both the vectorized knowledge from the PDF and the chat history of the assistant. The assistant is built using the phi library (likely phidata), and typer is used to create a command-line interface (CLI) for interacting with the assistant.
+
+Here's a line-by-line explanation:
+
+import typer
+
+    import typer: Imports the typer library, which is used for building command-line applications. It automatically creates CLI commands from Python functions.
+
+from typing import Optional,List
+
+    from typing import Optional,List: Imports Optional and List from the typing module. These are used for type hinting, making the code more readable and allowing static analysis tools to check for type correctness. (Note: List is used in the commented-out code, but Optional is not explicitly used in the active pdf_assistant function's signature, though it's good practice for clarity).
+
+from phi.assistant import Assistant
+
+    from phi.assistant import Assistant: Imports the Assistant class from the phi.assistant module. This is the core class for creating an AI assistant in the phi framework.
+
+from phi.storage.assistant.postgres import PGAssistantStorage
+
+    from phi.storage.assistant.postgres import PGAssistantStorage: Imports PGAssistantStorage from phi.storage.assistant.postgres. This class is used to store the assistant's chat history, configuration, and other related data in a PostgreSQL database.
+
+from phi.knowledge.pdf import PDFURLKnowledgeBase
+
+    from phi.knowledge.pdf import PDFURLKnowledgeBase: Imports PDFURLKnowledgeBase from phi.knowledge.pdf. This class allows the assistant to load knowledge from PDF documents specified by their URLs.
+
+from phi.vectordb.pgvector import PGVector2
+
+    from phi.vectordb.pgvector import PGVector2: Imports PGVector2 from phi.vectordb.pgvector. This class provides an interface to pgvector, a PostgreSQL extension that enables storing and querying vector embeddings directly in the database. This is crucial for semantic search on the PDF content.
+
+from dotenv import load_dotenv
+import os
+
+    from dotenv import load_dotenv: Imports the load_dotenv function from the dotenv library. This function loads environment variables from a .env file into the script's environment.
+    import os: Imports the os module, which provides a way to interact with the operating system, including accessing environment variables.
+
+load_dotenv()
+
+    load_dotenv(): Calls the load_dotenv function to load environment variables from a .env file (if one exists in the current directory) into the script's execution environment. This is typically used to load sensitive information like API keys.
+
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+
+    GROQ_API_KEY = os.getenv("GROQ_API_KEY"): Retrieves the value of the environment variable named "GROQ_API_KEY" and assigns it to the GROQ_API_KEY variable. This key is necessary to authenticate requests to the Groq API, which likely provides the large language model (LLM) for the assistant.
+
+# os.emviron["GROQ_API_KEY"] = os.getenv("GROQ_API_KEY")
+
+    # os.emviron["GROQ_API_KEY"] = os.getenv("GROQ_API_KEY"): This line is commented out. If it were active, it would explicitly set the "GROQ_API_KEY" environment variable within the current process's environment. load_dotenv() usually handles this implicitly, so this might be redundant or an alternative for specific deployment scenarios. (Note: there's a typo emviron instead of environ).
+
+DB_URL = "postgresql://postgres:postgres@localhost:5432/postgres"
+
+    DB_URL = "postgresql://postgres:postgres@localhost:5432/postgres": Defines a string variable DB_URL which holds the connection string for a PostgreSQL database. This specifies the database type (postgresql), username (postgres), password (postgres), host (localhost), port (5432), and database name (postgres).
+
+knowledge_base = PDFURLKnowledgeBase(
+    urls=["https://phi-public.s3.amazonaws.com/recipes/thai_recipes.pdf"],
+    vector_db=PGVector2(
+        collection_name="recipes",
+        db_url=DB_URL
+    )
+)
+
+    knowledge_base = PDFURLKnowledgeBase(...): Initializes a PDFURLKnowledgeBase object.
+        urls=["https://phi-public.s3.amazonaws.com/recipes/thai_recipes.pdf"]: Specifies a list of URLs pointing to PDF documents that the knowledge base should ingest. In this case, it's a PDF about Thai recipes.
+        vector_db=PGVector2(...): Configures the vector database where the extracted text from the PDF will be converted into numerical vectors (embeddings) and stored for efficient similarity search.
+            collection_name="recipes": Sets the name of the collection (or table) within the pgvector database where these embeddings will be stored.
+            db_url=DB_URL: Provides the database connection string defined earlier, telling PGVector2 where to connect.
+
+# knowledge_base.load()
+# storage=PGAssistantStorage(
+#         table_name="pdf_assistant",
+#         db_url=DB_URL
+#     )
+
+    # knowledge_base.load() and # storage=PGAssistantStorage(...): These lines are commented out. They show a previous way the knowledge_base might have been loaded or how storage might have been separately initialized. The next active block combines this.
+
+knowledge_base.load(
+    storage=PGAssistantStorage(
+        table_name="pdf_assistant",
+        db_url=DB_URL
+    )
+)
+
+    knowledge_base.load(...): This line calls the load method on the knowledge_base object. This process:
+        Downloads the PDF from the specified URL.
+        Extracts text from the PDF.
+        Splits the text into smaller chunks.
+        Generates vector embeddings for each chunk using an embedding model (often part of the phi framework or an external service like OpenAI/Groq).
+        Stores these text chunks and their embeddings into the PGVector2 database (collection_name="recipes").
+        storage=PGAssistantStorage(...): Importantly, this load method also accepts a storage argument. Here, it initializes a PGAssistantStorage object specifically for managing the loading process itself, potentially storing metadata about the loaded knowledge or ensuring persistence of the knowledge base's state. It specifies:
+            table_name="pdf_assistant": The name of the table in the PostgreSQL database where this loading metadata will be stored.
+            db_url=DB_URL: The database connection string.
+
+def pdf_assistant(
+    new: bool = False,
+    user: str = "user"
+) -> None:
+
+    def pdf_assistant(...): Defines the main function pdf_assistant. This function will be exposed as a command-line command by typer.
+        new: bool = False: A parameter that, if set to True, indicates that a new chat session (or "run") should be started, ignoring any existing ones. Defaults to False.
+        user: str = "user": A parameter to specify the user ID for the chat session. Defaults to "user".
+        -> None: Type hint indicating that the function does not return any value.
+
+    assistant = Assistant(
+        run_id="pdf_assistant",
+        user_id=user,
+        knowledge_base=knowledge_base,
+        storage=PGAssistantStorage(
+            table_name="pdf_assistant",
+            db_url=DB_URL
+        ),
+        show_tool_calls=True,
+        search_knowledge=True,
+        read_chat_history=True
+    )
+
+    assistant = Assistant(...): Initializes the Assistant object.
+        run_id="pdf_assistant": Assigns a fixed run_id to this assistant instance. A run_id uniquely identifies a conversation session.
+        user_id=user: Sets the user ID for this assistant instance, allowing for different users to have separate conversation histories.
+        knowledge_base=knowledge_base: Links the previously configured knowledge_base (containing the PDF content) to the assistant, enabling it to access that information.
+        storage=PGAssistantStorage(...): Configures the storage for the assistant's chat history and internal state. It uses a new PGAssistantStorage instance pointing to the pdf_assistant table in the PostgreSQL database.
+        show_tool_calls=True: If True, the assistant will print out details about any tools (like knowledge base search) it uses internally to generate its responses.
+        search_knowledge=True: Enables the assistant to automatically search its configured knowledge_base when answering questions.
+        read_chat_history=True: Allows the assistant to remember and refer to previous turns in the current conversation.
+
+    if new or not assistant.run_id:
+        assistant.run_id = "pdf_assistant"
+
+    if new or not assistant.run_id:: This condition checks if a new run is requested (new is True) OR if the assistant object somehow doesn't have a run_id (though it's explicitly set above, this acts as a safeguard).
+        assistant.run_id = "pdf_assistant": If the condition is met, it re-confirms or sets the run_id to "pdf_assistant". This ensures that even if new is True, it still uses this specific, fixed run_id. This means subsequent calls with new=False will continue this specific fixed run, rather than starting a truly unique new one each time.
+
+    assistant.start()
+
+    assistant.start(): Initializes the assistant, performing any necessary setup like connecting to the LLM and storage.
+
+    assistant.cli(markdown=True)
+
+    assistant.cli(markdown=True): Starts an interactive command-line interface (CLI) for the assistant. The markdown=True argument ensures that the assistant's responses are formatted using Markdown, which can improve readability in the terminal. The user can type questions, and the assistant will respond.
+
+"""
+def pdf_assistant(new: bool = False, user: str = "user"):
+    run_id: Optional[str] = None
+
+    if not new:
+        existing_run_ids: List[str] = storage.get_all_run_ids(user)
+        if len(existing_run_ids) > 0:
+            run_id = existing_run_ids[0]
+    
+    assistant = Assistant(
+        run_id=run_id,
+        user_id=user,
+        knowledge_base=knowledge_base,
+        storage=storage,
+        # Show toolcalls in the response
+        show_tool_calls=True,
+        # Enable the assistant to search the knowledge base
+        search_knowledge=True,
+        # Enable the assistant to read chat history
+        read_chat_history=True
+    )
+    if run_id is None:
+        run_id = assistant.run_id
+        print(f"Started Run: {run_id}\n")
+    else:
+        print(f"Continuing Run: {run_id}\n")
+    assistant.cli(markdown=True)
+"""
+
+    Commented-out Code Block: This block contains an alternative and more flexible implementation for managing run_ids.
+        It retrieves all existing run IDs for a given user from storage (storage.get_all_run_ids(user)).
+        If existing runs are found and new is False, it would select the first existing run_id to continue that specific conversation.
+        If no existing runs are found or new is True, it would start a new run (allowing the assistant to generate a unique run_id).
+        This provides more dynamic session management compared to the active code which uses a fixed run_id. The active code is simpler but means all interactions are part of the same pdf_assistant run.
+
+if __name__ == "__main__":
+    import typer
+    typer.run(pdf_assistant)
+
+    if __name__ == "__main__":: This is a standard Python construct that ensures the code inside this block only runs when the script is executed directly (not when it's imported as a module into another script).
+        import typer: Imports typer again. While it's imported at the top, it's common practice to re-import dependencies right before they are used in the main execution block if they're only needed there.
+        typer.run(pdf_assistant): This is the core line for typer. It takes the pdf_assistant function and automatically converts it into a command-line application. When you run this script, typer will parse command-line arguments (like --new or --user) and pass them to the pdf_assistant function, then execute it.
+
+In summary, this script sets up a conversational AI that can answer questions about the content of a specific PDF document (Thai recipes) by leveraging a PostgreSQL database for both knowledge storage and chat history, and provides a command-line interface for interaction.
